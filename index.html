@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบลงชื่อนักกีฬากรีฑา (คณะสีเขียว)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <style>
+    body { font-family: 'Prompt', sans-serif; background-color: #f8fafc; }
+    input:focus, select:focus { outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15); }
+    
+    /* แถบสีเขียวชัดเจนเมื่อบันทึกแล้ว (ทับสีประจำระดับชั้น) */
+    .row-saved {
+      background-color: #dcfce7 !important;
+      border-left: 6px solid #16a34a !important;
+    }
+  </style>
+</head>
+<body class="min-h-screen pb-16 text-slate-800">
+
+  <!-- Sticky Top Bar -->
+  <div class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white text-xl font-bold shadow-sm">
+          🏃
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold text-slate-800 leading-tight">ระบบลงสมัครแข่งขันกรีฑา</h1>
+          <p class="text-xs text-slate-500 flex items-center gap-1.5">
+            <span id="syncDot" class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+            <span id="syncStatusText">กำลังเชื่อมต่อข้อมูลกับ Google Sheet...</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+        <div class="bg-emerald-50 text-emerald-800 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium border border-emerald-200">
+          บันทึกแล้ว: <span id="savedCount" class="font-bold text-base text-emerald-600">0</span> / 49 รายการ
+        </div>
+        <button onclick="loadFromGoogleSheet(true)" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-medium rounded-lg transition shadow-sm">
+          🔄 รีเฟรชข้อมูลล่าสุด
+        </button>
+        <a href="https://docs.google.com/spreadsheets/d/1Eyjy4eYTIcZO6OC1PtSL5fTqAvpj-Hg5356144r3Dio/edit" target="_blank"
+          class="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-medium rounded-lg border border-slate-300 transition shadow-2xs">
+          📊 เปิดดู Google Sheet
+        </a>
+        <button onclick="exportCSV()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs sm:text-sm font-medium rounded-lg transition shadow-sm">
+          📥 โหลด CSV
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="max-w-6xl mx-auto px-4 mt-6 space-y-4">
+
+    <!-- แถบคำอธิบายสีระดับชั้น & ช่องค้นหา -->
+    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <span class="text-sm text-slate-600 font-medium">🔍 ค้นหา:</span>
+          <input type="text" id="searchInput" oninput="filterRows()" placeholder="พิมพ์ชื่อรายการ, ม.1, ชาย หรือชื่อนักเรียน..."
+            class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm w-full sm:w-64">
+          <select id="gradeFilter" onchange="filterRows()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm bg-slate-50">
+            <option value="all">ทุกระดับชั้น</option>
+            <option value="ม.1">ม.1 (ม.1/3, ม.1/8)</option>
+            <option value="ม.2">ม.2 (ม.2/10)</option>
+            <option value="ม.3">ม.3 (ม.3/2, ม.3/5)</option>
+            <option value="ม.4">ม.4 (ม.4/2, ม.4/8, ม.4/11)</option>
+            <option value="ม.5">ม.5 (ม.5/8)</option>
+            <option value="ม.6">ม.6 (ม.6/1, ม.6/5)</option>
+          </select>
+          <select id="statusFilter" onchange="filterRows()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm bg-slate-50">
+            <option value="all">ทุกสถานะ (49 รายการ)</option>
+            <option value="saved">✅ บันทึกแล้ว</option>
+            <option value="unsaved">⏳ ยังว่าง</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-2 text-xs font-medium text-emerald-800 bg-emerald-100/80 px-3 py-1.5 rounded-lg border border-emerald-300">
+          <span class="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span> แถบสีเขียวเข้ม = บันทึกข้อมูลแล้ว
+        </div>
+      </div>
+
+      <!-- สัญลักษณ์สีแยกตามระดับชั้น -->
+      <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+        <span class="text-slate-500 font-medium mr-1">สีประจำระดับชั้น:</span>
+        <span class="px-2.5 py-0.5 rounded-md bg-sky-100 text-sky-800 border border-sky-300 font-medium">ม.1 สีฟ้า</span>
+        <span class="px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 border border-indigo-300 font-medium">ม.2 สีคราม</span>
+        <span class="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-300 font-medium">ม.3 สีม่วง</span>
+        <span class="px-2.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-medium">ม.4 สีส้มอำพัน</span>
+        <span class="px-2.5 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300 font-medium">ม.5 สีชมพูโรส</span>
+        <span class="px-2.5 py-0.5 rounded-md bg-teal-100 text-teal-800 border border-teal-300 font-medium">ม.6 สีเขียวมิ้นต์</span>
+      </div>
+    </div>
+
+    <!-- ตารางแสดงรายการทั้งหมด 49 แถว -->
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-800 text-white text-xs sm:text-sm">
+              <th class="py-3.5 px-3 text-center w-12">#</th>
+              <th class="py-3.5 px-4 w-44">รายการแข่งขัน</th>
+              <th class="py-3.5 px-3 text-center w-44">ระดับชั้น</th>
+              <th class="py-3.5 px-3 text-center w-20">ประเภท</th>
+              <th class="py-3.5 px-4 min-w-[220px]">รายชื่อนักเรียน</th>
+              <th class="py-3.5 px-3 text-center w-36">ห้อง</th>
+              <th class="py-3.5 px-4 w-40">เบอร์โทรศัพท์</th>
+              <th class="py-3.5 px-4 text-center w-32">สถานะ / บันทึก</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody" class="divide-y divide-slate-200">
+            <!-- แถวทั้ง 49 รายการจะถูกสร้างที่นี่ -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // ลิงก์ Web App URL ของ Google Apps Script ที่ฝังไว้เรียบร้อยแล้ว
+    // =========================================================================
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyFs5QW1XG6-13i0xf8yMCgq5kU2_jBIAeNvqoWx9d44Aqssmk62neXONTUhtYkk_mS/exec";
+    const SHEET_ID = "1Eyjy4eYTIcZO6OC1PtSL5fTqAvpj-Hg5356144r3Dio";
+
+    // ข้อมูลห้องเรียนและโทนสีแยกตามระดับชั้น
+    const gradeConfig = {
+      'ม.1': {
+        subLabel: '(ม.1/3 และ ม.1/8)',
+        rooms: ['ม.1/3', 'ม.1/8'],
+        rowClass: 'bg-sky-50/70 hover:bg-sky-100/60 border-l-4 border-l-sky-500',
+        badgeClass: 'bg-sky-100 text-sky-900 border-sky-300',
+        subTextClass: 'text-sky-700'
+      },
+      'ม.2': {
+        subLabel: '(ม.2/10)',
+        rooms: ['ม.2/10'],
+        rowClass: 'bg-indigo-50/70 hover:bg-indigo-100/60 border-l-4 border-l-indigo-500',
+        badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+        subTextClass: 'text-indigo-700'
+      },
+      'ม.3': {
+        subLabel: '(ม.3/2 และ ม.3/5)',
+        rooms: ['ม.3/2', 'ม.3/5'],
+        rowClass: 'bg-purple-50/70 hover:bg-purple-100/60 border-l-4 border-l-purple-500',
+        badgeClass: 'bg-purple-100 text-purple-900 border-purple-300',
+        subTextClass: 'text-purple-700'
+      },
+      'ม.4': {
+        subLabel: '(ม.4/2, ม.4/8 และ ม.4/11)',
+        rooms: ['ม.4/2', 'ม.4/8', 'ม.4/11'],
+        rowClass: 'bg-amber-50/70 hover:bg-amber-100/60 border-l-4 border-l-amber-500',
+        badgeClass: 'bg-amber-100 text-amber-900 border-amber-300',
+        subTextClass: 'text-amber-800'
+      },
+      'ม.5': {
+        subLabel: '(ม.5/8)',
+        rooms: ['ม.5/8'],
+        rowClass: 'bg-rose-50/70 hover:bg-rose-100/60 border-l-4 border-l-rose-500',
+        badgeClass: 'bg-rose-100 text-rose-900 border-rose-300',
+        subTextClass: 'text-rose-700'
+      },
+      'ม.6': {
+        subLabel: '(ม.6/1 และ ม.6/5)',
+        rooms: ['ม.6/1', 'ม.6/5'],
+        rowClass: 'bg-teal-50/70 hover:bg-teal-100/60 border-l-4 border-l-teal-500',
+        badgeClass: 'bg-teal-100 text-teal-900 border-teal-300',
+        subTextClass: 'text-teal-800'
+      }
+    };
+
+    // สร้างรายการแข่งขันทั้งหมด 49 แถวตรงตามภาพต้นฉบับ
+    const grades = ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
+    const genders = ['ชาย', 'หญิง'];
+    const defaultSchedule = [];
+
+    grades.forEach(g => genders.forEach(gd => defaultSchedule.push({ event: 'วิ่ง 50 เมตร', grade: g, gender: gd })));
+    grades.forEach(g => genders.forEach(gd => defaultSchedule.push({ event: 'วิ่ง 80 เมตร ม.ต้น', grade: g, gender: gd })));
+    grades.forEach(g => genders.forEach(gd => defaultSchedule.push({ event: 'วิ่ง 80 เมตร ม.ปลาย', grade: g, gender: gd })));
+    defaultSchedule.push({ event: 'วิ่ง 80 เมตร ม.ปลาย', grade: 'ม.4', gender: 'หญิง' });
+    grades.forEach(g => genders.forEach(gd => defaultSchedule.push({ event: 'วิ่ง 100 เมตร', grade: g, gender: gd })));
+
+    let savedData = defaultSchedule.map((item, idx) => ({
+      id: idx + 1,
+      event: item.event,
+      grade: item.grade,
+      gender: item.gender,
+      name: '',
+      room: '',
+      phone: '',
+      isSaved: false
+    }));
+
+    // โหลดข้อมูลสำรองในเครื่องขึ้นมาแสดงก่อนระหว่างรอดึงจาก Google Sheet
+    const localBackup = JSON.parse(localStorage.getItem('athletics_sheet_backup_v4') || 'null');
+    if (localBackup && localBackup.length === defaultSchedule.length) {
+      savedData = localBackup;
+    }
+
+    // ดึงข้อมูลจาก Google Sheet มาแสดงให้ทุกคนเห็น
+    async function loadFromGoogleSheet(showAlert = false) {
+      const syncDot = document.getElementById('syncDot');
+      const syncText = document.getElementById('syncStatusText');
+
+      try {
+        syncDot.className = "w-2 h-2 rounded-full bg-blue-500 animate-ping inline-block";
+        syncText.innerText = "กำลังดึงข้อมูลล่าสุดจาก Google Sheet...";
+
+        const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=getData&t=${Date.now()}`, {
+          method: 'GET',
+          redirect: 'follow'
+        });
+        const json = await res.json();
+
+        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+          savedData = json.data;
+          localStorage.setItem('athletics_sheet_backup_v4', JSON.stringify(savedData));
+          renderTable();
+
+          syncDot.className = "w-2 h-2 rounded-full bg-emerald-500 inline-block";
+          syncText.innerText = `ซิงค์ข้อมูลกับ Google Sheet ล่าสุดเมื่อ ${new Date().toLocaleTimeString('th-TH')} น.`;
+
+          if (showAlert) {
+            Swal.fire({
+              toast: true,
+              position: 'top-end',
+              icon: 'success',
+              title: 'อัปเดตข้อมูลล่าสุดเรียบร้อย',
+              showConfirmButton: false,
+              timer: 1500
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error loading from Google Sheet:', err);
+        syncDot.className = "w-2 h-2 rounded-full bg-red-500 inline-block";
+        syncText.innerText = "เชื่อมต่อ Google Sheet ไม่สำเร็จ (กรุณากดปุ่มรีเฟรช หรือตรวจสอบสิทธิ์ Anyone ในการ Deploy)";
+        renderTable();
+      }
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = savedData.map((row, index) => {
+        const genderBadge = row.gender === 'ชาย'
+          ? 'bg-blue-100 text-blue-800 border-blue-300'
+          : 'bg-pink-100 text-pink-800 border-pink-300';
+
+        const gInfo = gradeConfig[row.grade] || {
+          subLabel: '',
+          rooms: [],
+          rowClass: 'bg-white',
+          badgeClass: 'bg-slate-100 text-slate-800 border-slate-300',
+          subTextClass: 'text-slate-500'
+        };
+
+        // กรณีบันทึกแล้ว -> แสดงแถบสีเขียว โชว์ข้อมูลให้ทุกคนเห็น และไม่มีปุ่มแก้ไข
+        if (row.isSaved) {
+          return `
+            <tr id="row-${index}" class="row-saved transition">
+              <td class="py-3.5 px-3 text-center text-xs font-bold text-emerald-800">${row.id}</td>
+              <td class="py-3.5 px-4 font-semibold text-emerald-950">
+                <span class="inline-block px-2.5 py-1 rounded-md text-xs font-semibold border bg-white/90 text-emerald-900 border-emerald-300">
+                  ${row.event}
+                </span>
+              </td>
+              <td class="py-2.5 px-3 text-center">
+                <div class="inline-flex flex-col items-center px-3 py-1 rounded-lg bg-white/90 border border-emerald-300">
+                  <span class="font-bold text-emerald-950 text-sm leading-tight">${row.grade}</span>
+                  <span class="text-[11px] text-emerald-700 font-medium leading-tight mt-0.5">${gInfo.subLabel}</span>
+                </div>
+              </td>
+              <td class="py-3.5 px-3 text-center">
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold border ${genderBadge}">
+                  ${row.gender}
+                </span>
+              </td>
+              <td class="py-3.5 px-4 font-bold text-emerald-950 text-base">
+                ✅ ${row.name}
+              </td>
+              <td class="py-3.5 px-3 text-center">
+                <span class="px-3 py-1 rounded-lg bg-emerald-700 text-white font-bold text-xs shadow-sm">
+                  ${row.room}
+                </span>
+              </td>
+              <td class="py-3.5 px-4 font-semibold text-emerald-900">
+                ${row.phone}
+              </td>
+              <td class="py-3.5 px-4 text-center">
+                <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg shadow-sm">
+                  🔒 บันทึกแล้ว
+                </span>
+              </td>
+            </tr>
+          `;
+        }
+
+        const roomOptions = gInfo.rooms.map(rm => 
+          `<option value="${rm}" ${row.room === rm ? 'selected' : ''}>${rm}</option>`
+        ).join('');
+
+        // กรณียังไม่ได้บันทึก -> แยกสีพื้นหลังตามระดับชั้น และแยกบรรทัดระดับชั้นกับห้องเรียน
+        return `
+          <tr id="row-${index}" class="${gInfo.rowClass} transition">
+            <td class="py-2.5 px-3 text-center text-xs text-slate-500 font-semibold">${row.id}</td>
+            <td class="py-2.5 px-4 font-semibold text-slate-800">
+              <span class="inline-block px-2.5 py-1 rounded-md text-xs font-semibold border bg-white/90 text-slate-800 border-slate-300 shadow-2xs">
+                ${row.event}
+              </span>
+            </td>
+            <td class="py-2 px-3 text-center">
+              <div class="inline-flex flex-col items-center px-3 py-1 rounded-lg border ${gInfo.badgeClass} shadow-2xs">
+                <span class="font-bold text-sm leading-tight">${row.grade}</span>
+                <span class="text-[11px] ${gInfo.subTextClass} font-normal leading-tight mt-0.5">${gInfo.subLabel}</span>
+              </div>
+            </td>
+            <td class="py-2.5 px-3 text-center">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold border ${genderBadge}">
+                ${row.gender}
+              </span>
+            </td>
+            <td class="py-2 px-3">
+              <input type="text" id="name-${index}" value="${row.name}" placeholder="กรอกชื่อ-นามสกุล..."
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-800 text-sm shadow-2xs">
+            </td>
+            <td class="py-2 px-2">
+              <select id="room-${index}" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-800 text-sm font-medium cursor-pointer shadow-2xs">
+                <option value="">-- เลือกห้อง --</option>
+                ${roomOptions}
+              </select>
+            </td>
+            <td class="py-2 px-3">
+              <input type="tel" id="phone-${index}" value="${row.phone}" placeholder="08X-XXX-XXXX"
+                class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-800 text-sm shadow-2xs">
+            </td>
+            <td class="py-2 px-4 text-center">
+              <button onclick="saveRow(${index})"
+                class="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition">
+                💾 บันทึก
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      updateSavedCount();
+      filterRows();
+    }
+
+    async function saveRow(index) {
+      const nameVal = document.getElementById(`name-${index}`).value.trim();
+      const roomVal = document.getElementById(`room-${index}`).value;
+      const phoneVal = document.getElementById(`phone-${index}`).value.trim();
+
+      if (!nameVal) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'กรุณากรอกรายชื่อนักเรียน',
+          text: 'ต้องระบุชื่อ-นามสกุลนักเรียนก่อนกดบันทึก',
+          confirmButtonColor: '#16a34a'
+        });
+        return;
+      }
+
+      if (!roomVal) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'กรุณาเลือกห้องเรียน',
+          text: 'โปรดเลือกห้องเรียนจากรายการดรอปดาวน์ก่อนกดบันทึก',
+          confirmButtonColor: '#16a34a'
+        });
+        return;
+      }
+
+      const row = savedData[index];
+
+      const confirmResult = await Swal.fire({
+        title: 'ยืนยันการบันทึกข้อมูล?',
+        html: `
+          <div class="text-left text-sm space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-200 mt-2">
+            <div><b>รายการ:</b> ${row.event} (${row.grade} ${row.gender})</div>
+            <div><b>ชื่อนักเรียน:</b> ${nameVal}</div>
+            <div><b>ห้อง:</b> ${roomVal}</div>
+            <div><b>เบอร์โทรศัพท์:</b> ${phoneVal || '-'}</div>
+          </div>
+          <p class="text-xs text-red-600 mt-3 font-medium">* เมื่อกดยืนยันแล้ว ข้อมูลจะถูกบันทึกลง Google Sheet และไม่สามารถกลับมาแก้ไขได้อีก</p>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#16a34a',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: '✅ ยืนยันบันทึก',
+        cancelButtonText: 'ยกเลิก'
+      });
+
+      if (!confirmResult.isConfirmed) return;
+
+      const updatedItem = {
+        ...row,
+        name: nameVal,
+        room: roomVal,
+        phone: phoneVal || '-',
+        isSaved: true
+      };
+
+      Swal.fire({
+        title: 'กำลังบันทึกลง Google Sheet...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        const response = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          redirect: 'follow',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'saveRow', data: updatedItem })
+        });
+        const resJson = await response.json();
+
+        if (resJson.status === 'already_saved') {
+          await loadFromGoogleSheet(false);
+          Swal.fire({
+            icon: 'info',
+            title: 'รายการนี้ถูกบันทึกไปแล้ว!',
+            text: resJson.message,
+            confirmButtonColor: '#16a34a'
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('Save error:', err);
+      }
+
+      savedData[index] = updatedItem;
+      localStorage.setItem('athletics_sheet_backup_v4', JSON.stringify(savedData));
+      renderTable();
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `บันทึก "${row.event} (${row.grade} ${row.gender})" เรียบร้อยแล้ว`,
+        showConfirmButton: false,
+        timer: 2000
+      });
+    }
+
+    function updateSavedCount() {
+      const count = savedData.filter(r => r.isSaved).length;
+      document.getElementById('savedCount').innerText = count;
+    }
+
+    function filterRows() {
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      const gradeFilter = document.getElementById('gradeFilter').value;
+      const status = document.getElementById('statusFilter').value;
+
+      savedData.forEach((row, index) => {
+        const tr = document.getElementById(`row-${index}`);
+        if (!tr) return;
+
+        const gSub = (gradeConfig[row.grade] && gradeConfig[row.grade].subLabel) || '';
+        const textToMatch = `${row.event} ${row.grade} ${gSub} ${row.gender} ${row.name} ${row.room} ${row.phone}`.toLowerCase();
+        
+        const matchesSearch = textToMatch.includes(q);
+        const matchesGrade = gradeFilter === 'all' || row.grade === gradeFilter;
+        const matchesStatus =
+          status === 'all' ||
+          (status === 'saved' && row.isSaved) ||
+          (status === 'unsaved' && !row.isSaved);
+
+        tr.style.display = (matchesSearch && matchesGrade && matchesStatus) ? '' : 'none';
+      });
+    }
+
+    function exportCSV() {
+      const headers = ['ลำดับ', 'รายการแข่งขัน', 'ระดับชั้น', 'ประเภท', 'รายชื่อนักเรียน', 'ห้อง', 'เบอร์โทรศัพท์', 'สถานะ'];
+      const rows = savedData.map(r => [
+        r.id,
+        r.event,
+        `"${r.grade} ${(gradeConfig[r.grade] ? gradeConfig[r.grade].subLabel : '')}"`,
+        r.gender,
+        `"${(r.name || '').replace(/"/g, '""')}"`,
+        `"${(r.room || '').replace(/"/g, '""')}"`,
+        `"${(r.phone || '').replace(/"/g, '""')}"`,
+        r.isSaved ? 'บันทึกแล้ว' : 'ว่าง'
+      ]);
+
+      const csvContent = "\uFEFF" + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ตารางรายชื่อนักกีฬากรีฑา.csv";
+      a.click();
+    }
+
+    // เริ่มต้นแสดงตารางและดึงข้อมูลจาก Google Sheet ทันทีเมื่อเปิดเว็บ พร้อมซิงค์อัตโนมัติทุก 30 วินาที
+    renderTable();
+    loadFromGoogleSheet(false);
+    setInterval(() => {
+      const activeEl = document.activeElement;
+      const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT');
+      if (!isTyping) {
+        loadFromGoogleSheet(false);
+      }
+    }, 30000);
+  </script>
+</body>
+</html>
